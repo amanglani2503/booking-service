@@ -12,14 +12,13 @@ public class Booking {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long bookingId;
 
-    private Long userId;
+    private String emailId;
     private Long flightId;
     private String passengerName;
     private LocalDateTime bookingDate;
     private String status;
 
     public Booking() {
-        this.bookingDate = LocalDateTime.now();
         this.status = "CONFIRMED";
     }
 }
