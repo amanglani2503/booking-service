@@ -1,7 +1,10 @@
 package com.example.booking_service.service;
 
+import com.example.booking_service.config.RabbitMQConfig;
 import com.example.booking_service.entity.Booking;
 import com.example.booking_service.entity.BookingResponse;
+import com.example.booking_service.entity.FlightDetails;
+import com.example.booking_service.entity.MessagingDetails;
 import com.example.booking_service.feign.FlightServiceFeign;
 import com.example.booking_service.repository.BookingRepository;
 import jakarta.servlet.http.HttpServletRequest;
@@ -11,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
 import java.util.List;
 import java.util.Optional;
@@ -24,6 +28,12 @@ public class BookingService {
     @Autowired
     private FlightServiceFeign flightServiceFeign;
 
+    @Autowired
+    private RabbitMQConfig rabbitMQConfig;
+
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
+
     public BookingResponse bookFlight(Booking booking) {
         String token = extractTokenFromRequest();
         String authHeader = token.startsWith("Bearer ") ? token : "Bearer " + token;
@@ -35,13 +45,33 @@ public class BookingService {
 
         booking.setStatus("CONFIRMED");
 
-        // Get the booked seat number
-        String seatNumber = flightServiceFeign.updateSeatAvailability(booking.getFlightId(), true, authHeader);
+        FlightDetails flightDetails = flightServiceFeign.bookSeat(booking.getFlightId(), authHeader);
 
-        BookingResponse newBooking =  new BookingResponse(booking.getUserId(), booking.getBookingId(),
-                booking.getPassengerName(), booking.getFlightId(), booking.getBookingDate(), booking.getStatus(), seatNumber);
+        BookingResponse newBooking = new BookingResponse(booking.getEmailId(), booking.getBookingId(),
+                booking.getPassengerName(), booking.getFlightId(), booking.getBookingDate(),
+                booking.getStatus(), flightDetails.getSeatNumber());
 
-        return bookingRepository.save(newBooking);
+        bookingRepository.save(newBooking);
+
+        // Create MessagingDetails Object
+        MessagingDetails messagingDetails = new MessagingDetails(
+                booking.getEmailId(),
+                booking.getPassengerName(),
+                newBooking.getBookingId(),
+                booking.getFlightId(),
+                flightDetails.getDepartureAirport(),
+                flightDetails.getArrivalAirport(),
+                flightDetails.getDepartureTime(),
+                flightDetails.getArrivalTime(),
+                flightDetails.getSeatNumber(),
+                flightDetails.getTotalAmountPaid(),
+                "CONFIRMED"
+        );
+
+        // Send message to RabbitMQ
+        rabbitTemplate.convertAndSend(rabbitMQConfig.getQueueName(), messagingDetails);
+
+        return newBooking;
     }
 
     public void cancelBooking(Long bookingId) {
@@ -53,20 +83,43 @@ public class BookingService {
 
             String token = extractTokenFromRequest();
             String authHeader = token.startsWith("Bearer ") ? token : "Bearer " + token;
+            System.out.println("Auth Header :- " + authHeader);
 
-            flightServiceFeign.updateSeatAvailability(existingBooking.getFlightId(), false, authHeader);
+            flightServiceFeign.cancelSeat(existingBooking.getFlightId(), existingBooking.getSeatNumber(), authHeader);
+
+            // Get flight details again for the email (if needed, or store them during booking)
+            FlightDetails flightDetails = flightServiceFeign.getFlightDetails(existingBooking.getFlightId(), authHeader);
+
+            // Build MessagingDetails object
+            MessagingDetails messagingDetails = new MessagingDetails(
+                    existingBooking.getEmailId(),
+                    existingBooking.getPassengerName(),
+                    existingBooking.getBookingId(),
+                    existingBooking.getFlightId(),
+                    flightDetails.getDepartureAirport(),
+                    flightDetails.getArrivalAirport(),
+                    flightDetails.getDepartureTime(),
+                    flightDetails.getArrivalTime(),
+                    existingBooking.getSeatNumber(),
+                    flightDetails.getTotalAmountPaid(),
+                    "CANCELED"
+            );
+
+
+            rabbitTemplate.convertAndSend(rabbitMQConfig.getQueueName(), messagingDetails);
         } else {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Booking not found with ID: " + bookingId);
         }
     }
+
 
     public BookingResponse getBookingDetails(Long bookingId) {
         return bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Booking not found with ID: " + bookingId));
     }
 
-    public List<BookingResponse> getBookingsByUser(Long userId) {
-        return bookingRepository.findByUserId(userId);
+    public List<BookingResponse> getBookingsByUser(String emailId) {
+        return bookingRepository.findByEmailId(emailId);
     }
 
     private String extractTokenFromRequest() {

@@ -48,8 +48,8 @@ public class BookingController {
     }
 
     @GetMapping("/user/{userId}")
-    public ResponseEntity<?> getBookingsByUser(@PathVariable Long userId) {
-        List<BookingResponse> bookings = bookingService.getBookingsByUser(userId);
+    public ResponseEntity<?> getBookingsByUser(@PathVariable String emailId) {
+        List<BookingResponse> bookings = bookingService.getBookingsByUser(emailId);
         if (bookings.isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body("No bookings found for this user.");
         }
