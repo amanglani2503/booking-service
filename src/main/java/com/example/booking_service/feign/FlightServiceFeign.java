@@ -1,6 +1,5 @@
 package com.example.booking_service.feign;
 
-import com.example.booking_service.entity.Booking;
 import com.example.booking_service.entity.FlightDetails;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.*;

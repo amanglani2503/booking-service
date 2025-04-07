@@ -2,6 +2,7 @@ package com.example.booking_service.controller;
 
 import com.example.booking_service.entity.Booking;
 import com.example.booking_service.entity.BookingResponse;
+import com.example.booking_service.entity.StripeResponse;
 import com.example.booking_service.service.BookingService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -20,8 +21,8 @@ public class BookingController {
     @PostMapping("/book")
     public ResponseEntity<?> bookFlight(@RequestBody Booking booking) {
         try {
-            BookingResponse newBooking = bookingService.bookFlight(booking);
-            return ResponseEntity.ok(newBooking);
+            StripeResponse paymentResponse = bookingService.bookFlight(booking);
+            return ResponseEntity.ok(paymentResponse);
         } catch (RuntimeException e) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
         }
