@@ -1,11 +1,9 @@
 package com.example.booking_service.service;
 
-import com.example.booking_service.config.RabbitMQConfig;
-import com.example.booking_service.entity.Booking;
-import com.example.booking_service.entity.BookingResponse;
-import com.example.booking_service.entity.FlightDetails;
-import com.example.booking_service.entity.MessagingDetails;
+import com.example.booking_service.entity.*;
 import com.example.booking_service.feign.FlightServiceFeign;
+import com.example.booking_service.feign.MessagingServiceFeign;
+import com.example.booking_service.feign.PaymentServiceFeign;
 import com.example.booking_service.repository.BookingRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,12 +27,71 @@ public class BookingService {
     private FlightServiceFeign flightServiceFeign;
 
     @Autowired
-    private RabbitMQConfig rabbitMQConfig;
+    private MessagingServiceFeign messagingServiceFeign;
+
+    @Autowired
+    private PaymentServiceFeign paymentServiceFeign;
 
     @Autowired
     private RabbitTemplate rabbitTemplate;
 
-    public BookingResponse bookFlight(Booking booking) {
+//    public StripeResponse bookFlight(Booking booking) {
+//        String token = extractTokenFromRequest();
+//        String authHeader = token.startsWith("Bearer ") ? token : "Bearer " + token;
+//
+//        boolean available = flightServiceFeign.isSeatAvailable(booking.getFlightId(), authHeader);
+//        if (!available) {
+//            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Seat is not available!");
+//        }
+//
+//        booking.setStatus("CONFIRMED");
+//
+//        FlightDetails flightDetails = flightServiceFeign.bookSeat(booking.getFlightId(), authHeader);
+//
+//        BookingResponse newBooking = new BookingResponse(booking.getEmailId(), booking.getBookingId(),
+//                booking.getPassengerName(), booking.getFlightId(), booking.getBookingDate(),
+//                booking.getStatus(), flightDetails.getSeatNumber());
+//
+//        // Create MessagingDetails Object
+//        MessagingDetails messagingDetails = new MessagingDetails(
+//                booking.getEmailId(),
+//                booking.getPassengerName(),
+//                newBooking.getBookingId(),
+//                booking.getFlightId(),
+//                flightDetails.getDepartureAirport(),
+//                flightDetails.getArrivalAirport(),
+//                flightDetails.getDepartureTime(),
+//                flightDetails.getArrivalTime(),
+//                flightDetails.getSeatNumber(),
+//                flightDetails.getTotalAmountPaid(),
+//                "CONFIRMED"
+//        );
+//
+//
+//        // Create PaymentRequest
+//        PaymentRequest paymentRequest = new PaymentRequest();
+//        paymentRequest.setAmount(flightDetails.getTotalAmountPaid());
+//        paymentRequest.setCurrency("usd"); // or derive from user input / flight data
+//        paymentRequest.setFlightId(booking.getFlightId());
+//        paymentRequest.setBookingId(String.valueOf(newBooking.getBookingId()));
+//        paymentRequest.setUserId(booking.getEmailId()); // Assuming email is used as userId
+//
+//
+//        StripeResponse paymentResponse = paymentServiceFeign.makePayment(paymentRequest);
+//        System.out.println("Session URL :- " + paymentResponse.getSessionUrl());
+//        if (!"SUCCESS".equalsIgnoreCase(paymentResponse.getStatus())) {
+//            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Payment failed: " + paymentResponse.getMessage());
+//        }
+//
+//
+//        bookingRepository.save(newBooking);
+//
+//        messagingServiceFeign.sendMessage(messagingDetails);
+//
+//        return paymentResponse;
+//    }
+
+    public StripeResponse bookFlight(Booking booking) {
         String token = extractTokenFromRequest();
         String authHeader = token.startsWith("Bearer ") ? token : "Bearer " + token;
 
@@ -43,36 +100,80 @@ public class BookingService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Seat is not available!");
         }
 
-        booking.setStatus("CONFIRMED");
-
-        FlightDetails flightDetails = flightServiceFeign.bookSeat(booking.getFlightId(), authHeader);
-
-        BookingResponse newBooking = new BookingResponse(booking.getEmailId(), booking.getBookingId(),
-                booking.getPassengerName(), booking.getFlightId(), booking.getBookingDate(),
-                booking.getStatus(), flightDetails.getSeatNumber());
-
-        bookingRepository.save(newBooking);
-
-        // Create MessagingDetails Object
-        MessagingDetails messagingDetails = new MessagingDetails(
+        BookingResponse pendingBooking = new BookingResponse(
                 booking.getEmailId(),
+                booking.getBookingId(),
                 booking.getPassengerName(),
-                newBooking.getBookingId(),
                 booking.getFlightId(),
-                flightDetails.getDepartureAirport(),
-                flightDetails.getArrivalAirport(),
-                flightDetails.getDepartureTime(),
-                flightDetails.getArrivalTime(),
-                flightDetails.getSeatNumber(),
-                flightDetails.getTotalAmountPaid(),
-                "CONFIRMED"
+                booking.getBookingDate(),
+                "PENDING",
+                null
         );
 
-        // Send message to RabbitMQ
-        rabbitTemplate.convertAndSend(rabbitMQConfig.getQueueName(), messagingDetails);
+        bookingRepository.save(pendingBooking);
 
-        return newBooking;
+        try {
+            FlightDetails flightDetails = flightServiceFeign.bookSeat(booking.getFlightId(), authHeader);
+
+            PaymentRequest paymentRequest = new PaymentRequest();
+            paymentRequest.setAmount(flightDetails.getTotalAmountPaid());
+            paymentRequest.setCurrency("usd");
+            paymentRequest.setFlightId(booking.getFlightId());
+            paymentRequest.setBookingId(String.valueOf(booking.getBookingId()));
+            paymentRequest.setUserId(booking.getEmailId());
+
+            StripeResponse paymentResponse = paymentServiceFeign.makePayment(paymentRequest, authHeader);
+
+            if (!"SUCCESS".equalsIgnoreCase(paymentResponse.getStatus())) {
+                throw new IllegalStateException("Payment failed: " + paymentResponse.getMessage());
+            }
+
+            BookingResponse confirmedBooking = new BookingResponse(
+                    booking.getEmailId(),
+                    booking.getBookingId(),
+                    booking.getPassengerName(),
+                    booking.getFlightId(),
+                    booking.getBookingDate(),
+                    "CONFIRMED",
+                    flightDetails.getSeatNumber()
+            );
+
+            bookingRepository.save(confirmedBooking);
+
+            MessagingDetails messagingDetails = new MessagingDetails(
+                    confirmedBooking.getEmailId(),
+                    confirmedBooking.getPassengerName(),
+                    confirmedBooking.getBookingId(),
+                    confirmedBooking.getFlightId(),
+                    flightDetails.getDepartureAirport(),
+                    flightDetails.getArrivalAirport(),
+                    flightDetails.getDepartureTime(),
+                    flightDetails.getArrivalTime(),
+                    flightDetails.getSeatNumber(),
+                    flightDetails.getTotalAmountPaid(),
+                    "CONFIRMED"
+            );
+
+            messagingServiceFeign.sendMessage(messagingDetails, authHeader);
+
+            return paymentResponse;
+
+        } catch (Exception ex) {
+            BookingResponse failedBooking = new BookingResponse(
+                    booking.getEmailId(),
+                    booking.getBookingId(),
+                    booking.getPassengerName(),
+                    booking.getFlightId(),
+                    booking.getBookingDate(),
+                    "FAILED",
+                    null
+            );
+
+            bookingRepository.save(failedBooking);
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Booking failed: " + ex.getMessage());
+        }
     }
+
 
     public void cancelBooking(Long bookingId) {
         Optional<BookingResponse> booking = bookingRepository.findById(bookingId);
@@ -105,8 +206,7 @@ public class BookingService {
                     "CANCELED"
             );
 
-
-            rabbitTemplate.convertAndSend(rabbitMQConfig.getQueueName(), messagingDetails);
+            messagingServiceFeign.sendMessage(messagingDetails, authHeader);
         } else {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Booking not found with ID: " + bookingId);
         }
