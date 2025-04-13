@@ -19,6 +19,7 @@ public class Booking {
     private String status;
 
     public Booking() {
+        this.bookingDate = LocalDateTime.now();
         this.status = "CONFIRMED";
     }
 }

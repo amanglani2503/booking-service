@@ -1,0 +1,8 @@
+2025-04-12 01:30:16 [main] INFO  c.e.b.service.BookingService - Fetching all bookings for user: user@example.com
+2025-04-12 01:30:16 [main] INFO  c.e.b.service.BookingService - Fetching booking details for ID: 1
+2025-04-12 01:30:16 [main] WARN  c.e.b.service.BookingService - Booking not found with ID: 1
+2025-04-12 01:30:16 [main] INFO  c.e.b.service.BookingService - Fetching booking details for ID: 1
+2025-04-12 01:30:16 [main] INFO  c.e.b.service.BookingService - Cancelling booking ID: 999
+2025-04-12 01:30:16 [main] ERROR c.e.b.service.BookingService - Booking not found for cancellation, ID: 999
+2025-04-12 01:30:16 [main] INFO  c.e.b.service.BookingService - Cancelling booking ID: 1
+2025-04-12 01:30:16 [main] INFO  c.e.b.service.BookingService - Seat canceled in flight service for booking ID: 1

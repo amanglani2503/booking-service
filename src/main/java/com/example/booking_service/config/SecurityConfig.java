@@ -24,26 +24,27 @@ import java.util.List;
 public class SecurityConfig {
 
     @Autowired
-    private JwtFilter jwtFilter;
+    private JwtFilter jwtFilter; // Custom JWT authentication filter
 
+    // Configure security filter chain
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-                .csrf(csrf -> csrf.disable())
+                .cors(cors -> cors.configurationSource(corsConfigurationSource())) // Enable CORS
+                .csrf(csrf -> csrf.disable()) // Disable CSRF for stateless APIs
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/bookings/**").hasRole("PASSENGER")
-                        .anyRequest().authenticated()
+                        .requestMatchers("/bookings/**").hasRole("PASSENGER") // Restrict booking APIs
+                        .anyRequest().authenticated() // Require authentication for all other requests
                 )
-
-                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
-                .formLogin(form -> form.disable())
-                .httpBasic(httpBasic -> httpBasic.disable());
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)) // No session
+                .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class) // Add JWT filter before default filter
+                .formLogin(form -> form.disable()) // Disable form login
+                .httpBasic(httpBasic -> httpBasic.disable()); // Disable HTTP Basic auth
 
         return http.build();
     }
 
+    // CORS configuration for allowed origins, methods, and headers
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
@@ -57,6 +58,7 @@ public class SecurityConfig {
         return source;
     }
 
+    // Allow encoded URLs (e.g., %2F or semicolons)
     @Bean
     public HttpFirewall relaxedHttpFirewall() {
         StrictHttpFirewall firewall = new StrictHttpFirewall();
@@ -66,6 +68,7 @@ public class SecurityConfig {
         return firewall;
     }
 
+    // Dummy user detail service (not used with JWT)
     @Bean
     public UserDetailsService userDetailsService() {
         return username -> null;
